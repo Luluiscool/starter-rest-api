@@ -1,72 +1,84 @@
-const express = require('express')
-const app = express()
-const db = require('@cyclic.sh/dynamodb')
+const { Database } = require('./db');
 
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
+const db=new Database("127.0.0.1", 61645, "database.json");
+db.Save();
 
-// #############################################################################
-// This configures static hosting for files in /public that have the extensions
-// listed in the array.
-// var options = {
-//   dotfiles: 'ignore',
-//   etag: false,
-//   extensions: ['htm', 'html','css','js','ico','jpg','jpeg','png','svg'],
-//   index: ['index.html'],
-//   maxAge: '1m',
-//   redirect: false
-// }
-// app.use(express.static('public', options))
-// #############################################################################
 
-// Create or Update an item
-app.post('/:col/:key', async (req, res) => {
-  console.log(req.body)
+db.Receive=(data, client)=>{
+    if(data.PROTOCOL===-1){ // Like a post
+        for(let i=0;i<db.__DATA__.POST.length;i++){
+            if(db.__DATA__.POST[i].id==data.id){
+                db.__DATA__.POST[i].like++;
+                db.__DATA__.POST[i].likedBy.push(data.user);
+                break;
+            }
+        }
+    }
+    if(data.PROTOCOL===-3){ // Unlike a post
+        for(let i=0;i<db.__DATA__.POST.length;i++){
+            if(db.__DATA__.POST[i].id==data.id){
+                db.__DATA__.POST[i].like--;
+                for(let j=0;j<db.__DATA__.POST[i].likedBy.length;j++){
+                    if(db.__DATA__.POST[i].likedBy[j]==data.user){
+                        db.__DATA__.POST[i].likedBy.splice(j, 1);
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+    }
 
-  const col = req.params.col
-  const key = req.params.key
-  console.log(`from collection: ${col} delete key: ${key} with params ${JSON.stringify(req.params)}`)
-  const item = await db.collection(col).set(key, req.body)
-  console.log(JSON.stringify(item, null, 2))
-  res.json(item).end()
-})
+    if(data.PROTOCOL===-2){ // Get All Posts
+        client.send(db.CreateData({
+            PROTOCOL:-2,
+            post:db.__DATA__.POST
+        }));
+    }
 
-// Delete an item
-app.delete('/:col/:key', async (req, res) => {
-  const col = req.params.col
-  const key = req.params.key
-  console.log(`from collection: ${col} delete key: ${key} with params ${JSON.stringify(req.params)}`)
-  const item = await db.collection(col).delete(key)
-  console.log(JSON.stringify(item, null, 2))
-  res.json(item).end()
-})
+    if(data.PROTOCOL===-4){ // Get A Specific Post
+        for(let i=0;i<db.__DATA__.POST.length;i++){
+            if(db.__DATA__.POST[i].id==data.id){
+                client.send(db.CreateData({
+                    PROTOCOL:-4,
+                    post:db.__DATA__.POST[i]
+                }));
+                break;
+            }
+        }
+    }
 
-// Get a single item
-app.get('/:col/:key', async (req, res) => {
-  const col = req.params.col
-  const key = req.params.key
-  console.log(`from collection: ${col} get key: ${key} with params ${JSON.stringify(req.params)}`)
-  const item = await db.collection(col).get(key)
-  console.log(JSON.stringify(item, null, 2))
-  res.json(item).end()
-})
+    if(data.PROTOCOL===-5){ // Upload a comment
+        for(let i=0;i<db.__DATA__.POST.length;i++){
+            if(db.__DATA__.POST[i].id==data.id){
+                db.__DATA__.POST[i].comments.push({
+                    name: data.name,
+                    comment: data.comment
+                });
+                break;
+            }
+        }
+    }
 
-// Get a full listing
-app.get('/:col', async (req, res) => {
-  const col = req.params.col
-  console.log(`list collection: ${col} with params: ${JSON.stringify(req.params)}`)
-  const items = await db.collection(col).list()
-  console.log(JSON.stringify(items, null, 2))
-  res.json(items).end()
-})
+    if(data.PROTOCOL===-6){ // Upload a post
+        // download(data.thumb, 'img/s'+id+".png", function(){});
+        db.__DATA__.POST.push({
+            id:db.__DATA__.POST.length,
+            by:data.user,
+            thumb:data.thumb,
+            title:data.title,
+            like:0,
+            likedBy:[],
+            comments:[]
+        });
+    }
 
-// Catch all handler for all other request.
-app.use('*', (req, res) => {
-  res.json({ msg: 'no route handler found' }).end()
-})
+    db.Save();
+}
 
-// Start the server
-const port = process.env.PORT || 3000
-app.listen(port, () => {
-  console.log(`index.js listening on ${port}`)
-})
+
+var download = function(uri, filename, callback){
+    request.head(uri, function(err, res, body){
+        request(uri).pipe(fs.createWriteStream(filename)).on('close', callback);
+    });
+};
